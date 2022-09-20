@@ -135,6 +135,31 @@ func resourceSlackConversationCreate(ctx context.Context, d *schema.ResourceData
 		logger.trace(ctx, "Got a response from Slack API")
 	}
 
+	_, err = client.SetPurposeOfConversation(channel.ID, d.Get("purpose").(string))
+	if err != nil {
+		return diag.Diagnostics{
+			{
+				Severity: diag.Error,
+				Summary:  fmt.Sprintf("Slack provider couldn't setip Topic on channel (%s, isPrivate = %t) due to *%s*", name, isPrivate, err.Error()),
+				Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.setPurpose"),
+			},
+		}
+	} else {
+		logger.trace(ctx, "Got a response from Slack API")
+	}
+	channel, err = client.SetTopicOfConversation(channel.ID, d.Get("topic").(string))
+	if err != nil {
+		return diag.Diagnostics{
+			{
+				Severity: diag.Error,
+				Summary:  fmt.Sprintf("Slack provider couldn't setip Topic on channel (%s, isPrivate = %t) due to *%s*", name, isPrivate, err.Error()),
+				Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.setPurpose"),
+			},
+		}
+	} else {
+		logger.trace(ctx, "Got a response from Slack API")
+	}
+
 	configureSlackConversation(ctx, logger, d, channel)
 
 	return nil
@@ -181,79 +206,102 @@ func resourceSlackConversationUpdate(ctx context.Context, d *schema.ResourceData
 
 	// TODO check if it's changed or not to reduce api calls
 
-	name := d.Get("name").(string)
+	if d.HasChange("name") {
+		name := d.Get("name").(string)
+		if _, err := client.RenameConversationContext(ctx, id, name); err != nil {
+			return diag.Diagnostics{
+				{
+					Severity: diag.Error,
+					Summary:  fmt.Sprintf("Slack provider couldn't rename a slack conversation (%s) to %s due to *%s*", id, name, err.Error()),
+					Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.rename"),
+				},
+			}
+		} else {
+			logger.trace(ctx, "Name renamed to [%s]", name)
+		}
+	}
 
-	if _, err := client.RenameConversationContext(ctx, id, name); err != nil {
+	if d.HasChange("topic") {
+		if topic, ok := d.GetOk("topic"); ok {
+			if _, err := client.SetTopicOfConversationContext(ctx, id, topic.(string)); err != nil {
+				return diag.Diagnostics{
+					{
+						Severity: diag.Error,
+						Summary:  fmt.Sprintf("Slack provider couldn't set a topic of a slack conversation (%s) to %s due to *%s*", id, topic.(string), err.Error()),
+						Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.setTopic"),
+					},
+				}
+			}
+		} else {
+			logger.trace(ctx, "Set the conversation topic to %s", topic)
+		}
+	}
+
+	if d.HasChange("purpose") {
+		if purpose, ok := d.GetOk("purpose"); ok {
+			if _, err := client.SetPurposeOfConversationContext(ctx, id, purpose.(string)); err != nil {
+				return diag.Diagnostics{
+					{
+						Severity: diag.Error,
+						Summary:  fmt.Sprintf("Slack provider couldn't set a purpose of a slack conversation (%s) to %s due to *%s*", id, purpose.(string), err.Error()),
+						Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.setPurpose"),
+					},
+				}
+			} else {
+				logger.trace(ctx, "purpose successfully changed to [%s]", purpose)
+			}
+		}
+	}
+
+	if d.HasChange("is_archived") {
+		if isArchived := d.Get("is_archived"); isArchived != nil {
+			if isArchived.(bool) {
+				if err := client.ArchiveConversationContext(ctx, id); err != nil {
+					if err.Error() != "already_archived" {
+						return diag.Diagnostics{
+							{
+								Severity: diag.Error,
+								Summary:  fmt.Sprintf("Slack provider couldn't archive a slack conversation (%s) due to *%s*", id, err.Error()),
+								Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.archive"),
+							},
+						}
+					} else {
+						logger.debug(ctx, "The conversation has already been archived")
+					}
+				}
+
+				logger.trace(ctx, "Archived the conversation")
+			} else {
+				if err := client.UnArchiveConversationContext(ctx, id); err != nil {
+					if err.Error() != "not_archived" {
+						return diag.Diagnostics{
+							{
+								Severity: diag.Error,
+								Summary:  fmt.Sprintf("Slack provider couldn't unarchive a slack conversation (%s) due to *%s*", id, err.Error()),
+								Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.unarchive"),
+							},
+						}
+					} else {
+						logger.debug(ctx, "The conversation has already been unarchived")
+					}
+				}
+
+				logger.trace(ctx, "Unarchived the conversation")
+			}
+		}
+	}
+
+	if d.HasChange("action_on_destroy") {
+		// its only internal field its stored only in state
+		d.Set("action_on_destroy", d.Get("action_on_destroy"))
+	}
+
+	if d.HasChange("is_private") {
 		return diag.Diagnostics{
 			{
 				Severity: diag.Error,
-				Summary:  fmt.Sprintf("Slack provider couldn't rename a slack conversation (%s) to %s due to *%s*", id, name, err.Error()),
-				Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.rename"),
+				Summary:  fmt.Sprintf("Provider doesn't support Converting channel from private to public and from public to private"),
 			},
-		}
-	} else {
-		logger.trace(ctx, "Renamed the conversation to %s", name)
-	}
-
-	if topic, ok := d.GetOk("topic"); ok {
-		if _, err := client.SetTopicOfConversationContext(ctx, id, topic.(string)); err != nil {
-			return diag.Diagnostics{
-				{
-					Severity: diag.Error,
-					Summary:  fmt.Sprintf("Slack provider couldn't set a topic of a slack conversation (%s) to %s due to *%s*", id, topic.(string), err.Error()),
-					Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.setTopic"),
-				},
-			}
-		}
-	} else {
-		logger.trace(ctx, "Set the conversation topic to %s", topic)
-	}
-
-	if purpose, ok := d.GetOk("purpose"); ok {
-		if _, err := client.SetPurposeOfConversationContext(ctx, id, purpose.(string)); err != nil {
-			return diag.Diagnostics{
-				{
-					Severity: diag.Error,
-					Summary:  fmt.Sprintf("Slack provider couldn't set a purpose of a slack conversation (%s) to %s due to *%s*", id, purpose.(string), err.Error()),
-					Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.setPurpose"),
-				},
-			}
-		}
-	}
-
-	if isArchived, ok := d.GetOkExists("is_archived"); ok {
-		if isArchived.(bool) {
-			if err := client.ArchiveConversationContext(ctx, id); err != nil {
-				if err.Error() != "already_archived" {
-					return diag.Diagnostics{
-						{
-							Severity: diag.Error,
-							Summary:  fmt.Sprintf("Slack provider couldn't archive a slack conversation (%s) due to *%s*", id, err.Error()),
-							Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.archive"),
-						},
-					}
-				} else {
-					logger.debug(ctx, "The conversation has already been archived")
-				}
-			}
-
-			logger.trace(ctx, "Archived the conversation")
-		} else {
-			if err := client.UnArchiveConversationContext(ctx, id); err != nil {
-				if err.Error() != "not_archived" {
-					return diag.Diagnostics{
-						{
-							Severity: diag.Error,
-							Summary:  fmt.Sprintf("Slack provider couldn't unarchive a slack conversation (%s) due to *%s*", id, err.Error()),
-							Detail:   fmt.Sprintf("Please refer to %s for the details.", "https://api.slack.com/methods/conversations.unarchive"),
-						},
-					}
-				} else {
-					logger.debug(ctx, "The conversation has already been unarchived")
-				}
-			}
-
-			logger.trace(ctx, "Unarchived the conversation")
 		}
 	}
 
