@@ -27,10 +27,14 @@ func TestAccResourceConversation(t *testing.T) {
 	rName := fmt.Sprintf("acc-test-%s", acctest.RandStringFromCharSet(8, acctest.CharSetAlpha))
 	rNameRenamed := "acc-test-" + acctest.RandStringFromCharSet(8, acctest.CharSetAlpha)
 
-	githubToken := os.Getenv("SLACK_TOKEN")
+	slackToken := os.Getenv("SLACK_TOKEN")
 
 	resource.Test(t, resource.TestCase{
-		PreCheck: nil,
+		PreCheck: func() {
+			if slackToken == "" {
+				t.Skipf("SLACK_TOKEN not setup skipping")
+			}
+		},
 		ProviderFactories: map[string]func() (*schema.Provider, error){
 			"slack": newWithError("test", "commit"),
 		},
@@ -42,7 +46,7 @@ func TestAccResourceConversation(t *testing.T) {
 		ErrorCheck:                nil,
 		Steps: []resource.TestStep{
 			{
-				Config: tfCode(githubToken, rName, "The topic for test", "purpose", "archive", "false", "false"),
+				Config: tfCode(slackToken, rName, "The topic for test", "purpose", "archive", "false", "false"),
 
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("slack_conversation.this", "name", rName),
@@ -64,7 +68,7 @@ func TestAccResourceConversation(t *testing.T) {
 				),
 			},
 			{ //renaming all fields
-				Config: tfCode(githubToken, rNameRenamed, "The topic for test2", "purpose2", "none", "true", "false"),
+				Config: tfCode(slackToken, rNameRenamed, "The topic for test2", "purpose2", "none", "true", "false"),
 
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("slack_conversation.this", "name", rNameRenamed),
